@@ -3,9 +3,7 @@
 //! that is how the providers bucket their own data.
 
 mod anthropic;
-mod claude_sub;
 mod openai;
-mod openrouter;
 
 use crate::config::{Account, Provider};
 use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
@@ -85,8 +83,9 @@ pub fn http() -> reqwest::Client {
         .expect("http client")
 }
 
-pub async fn fetch(client: &reqwest::Client, acc: &Account, secret: Option<String>) -> Usage {
-    let mut u = Usage {
+/// Empty `Usage` carrying the account's identity fields.
+pub fn base_usage(acc: &Account) -> Usage {
+    Usage {
         id: acc.id.clone(),
         label: acc.label.clone(),
         provider: serde_json::to_value(acc.provider)
@@ -96,7 +95,11 @@ pub async fn fetch(client: &reqwest::Client, acc: &Account, secret: Option<Strin
         budget_month: acc.budget_month,
         fetched_at: Utc::now().to_rfc3339(),
         ..Default::default()
-    };
+    }
+}
+
+pub async fn fetch(client: &reqwest::Client, acc: &Account, secret: Option<String>) -> Usage {
+    let mut u = base_usage(acc);
     let res = match acc.provider {
         Provider::Anthropic => match secret {
             Some(k) => anthropic::fetch(client, &k, &mut u).await,
@@ -106,12 +109,9 @@ pub async fn fetch(client: &reqwest::Client, acc: &Account, secret: Option<Strin
             Some(k) => openai::fetch(client, &k, &mut u).await,
             None => Err("missing admin key".into()),
         },
-        Provider::Openrouter => match secret {
-            Some(k) => openrouter::fetch(client, &k, &mut u).await,
-            None => Err("missing API key".into()),
-        },
-        Provider::ClaudeSubscription => {
-            claude_sub::fetch(client, secret, acc.credentials_path.as_deref(), &mut u).await
+        // Need the app handle (embedded webview); handled in crate::web_session.
+        Provider::ClaudeWeb | Provider::ChatgptWeb | Provider::OpencodeWeb => {
+            Err("internal: web sessions are fetched elsewhere".into())
         }
     };
     if let Err(e) = res {

@@ -14,10 +14,11 @@ pub enum Provider {
     Anthropic,
     /// OpenAI org, Admin key.
     Openai,
-    /// OpenRouter, regular API key.
-    Openrouter,
-    /// Claude Pro/Max subscription limits, via the Claude Code OAuth login.
-    ClaudeSubscription,
+    /// Plan limits via a session signed in inside the app (embedded WebView2).
+    /// Needs nothing else installed. See web_session.rs.
+    ClaudeWeb,
+    ChatgptWeb,
+    OpencodeWeb,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -28,10 +29,6 @@ pub struct Account {
     /// Monthly budget in USD, for the bar and the projection.
     #[serde(default)]
     pub budget_month: Option<f64>,
-    /// ClaudeSubscription only: path to Claude Code's .credentials.json
-    /// (defaults to %USERPROFILE%\.claude\.credentials.json).
-    #[serde(default)]
-    pub credentials_path: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -59,11 +56,24 @@ fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 pub fn load(app: &AppHandle) -> Config {
-    config_path(app)
+    let Some(v) = config_path(app)
         .ok()
         .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+    else {
+        return Config::default();
+    };
+    // Skip accounts of providers that no longer exist instead of losing them all.
+    let accounts = v["accounts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|a| serde_json::from_value(a.clone()).ok())
+        .collect();
+    Config {
+        accounts,
+        refresh_secs: v["refresh_secs"].as_u64().unwrap_or_else(default_refresh),
+    }
 }
 
 pub fn save(app: &AppHandle, cfg: &Config) -> Result<(), String> {

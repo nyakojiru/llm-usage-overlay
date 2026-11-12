@@ -27,23 +27,23 @@
         <h2>Add account</h2>
         <label>Provider
           <select name="provider" id="provider">
-            <option value="claude_subscription">Claude Pro/Max plan (Claude Code login)</option>
-            <option value="anthropic">Anthropic API org (Admin key)</option>
-            <option value="openai">OpenAI API org (Admin key)</option>
-            <option value="openrouter">OpenRouter (API key)</option>
+            <option value="claude_web">Claude plan (Pro/Max)</option>
+            <option value="chatgpt_web">ChatGPT plan (Plus/Pro)</option>
+            <option value="opencode_web">OpenCode (Go / Zen)</option>
+            <option value="anthropic">Anthropic API spend</option>
+            <option value="openai">OpenAI API spend</option>
           </select>
         </label>
         <label>Label <input name="label" placeholder="e.g. Personal Max" /></label>
-        <label id="row-secret">Key <input name="secret" type="password" autocomplete="off" placeholder="sk-ant-admin…" /></label>
-        <label id="row-path">Credentials file (optional)
-          <input name="credentials_path" placeholder="%USERPROFILE%\.claude\.credentials.json" />
-        </label>
+        <label id="row-secret">Key <input name="secret" type="password" autocomplete="off" placeholder="admin key" /></label>
         <label id="row-budget">Monthly budget, USD (optional) <input name="budget_month" type="number" min="0" step="1" /></label>
         <p id="hint" class="hint"></p>
         <button type="submit">Add</button>
         <p id="form-error" class="err"></p>
       </form>
 
+      <label class="check"><input id="alerts" type="checkbox" /> Notify me at 80 % / 95 % of a limit, when I'm on pace to hit one, and at 80 % / 100 % of a budget</label>
+      <button type="button" class="link" id="test-alert">Send a test notification</button>
       <label class="inline">Refresh every
         <input id="refresh" type="number" min="60" step="30" /> s
       </label>

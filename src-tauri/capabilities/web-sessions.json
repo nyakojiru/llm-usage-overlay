@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "web-sessions",
+  "description": "Sign-in windows (claude.ai, chatgpt.com, opencode.ai): may only report their usage back",
+  "windows": ["ws-*"],
+  "remote": {
+    "urls": ["https://claude.ai/*", "https://chatgpt.com/*", "https://opencode.ai/*"]
+  },
+  "permissions": ["allow-report-web-usage"]
+}

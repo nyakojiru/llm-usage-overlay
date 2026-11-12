@@ -12,6 +12,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; background: transparent; color: var(--fg); overflow: hidden; user-select: none; }
 
 #frame {

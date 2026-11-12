@@ -55,7 +55,17 @@ fn add_account(
     cfg.accounts.push(Account {
         id,
         provider,
-        label: if label.trim().is_empty() { format!("{provider:?}") } else { label.trim().into() },
+        label: if label.trim().is_empty() {
+            match provider {
+                Provider::Anthropic => "Anthropic API",
+                Provider::Openai => "OpenAI API",
+                Provider::Openrouter => "OpenRouter",
+                Provider::ClaudeSubscription => "Claude plan",
+            }
+            .into()
+        } else {
+            label.trim().into()
+        },
         budget_month: budget_month.filter(|b| *b > 0.0),
         credentials_path: credentials_path.filter(|p| !p.trim().is_empty()),
     });

@@ -150,6 +150,9 @@ $("provider").onchange = syncForm;
 $("add-form").onsubmit = async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
+  const btn = e.target.querySelector("button[type=submit]");
+  if (btn.disabled) return;
+  btn.disabled = true;
   $("form-error").textContent = "";
   try {
     cfg = await invoke("add_account", {
@@ -160,9 +163,12 @@ $("add-form").onsubmit = async (e) => {
       credentialsPath: f.get("credentials_path") || null,
     });
     e.target.reset();
-    renderSettings();
+    // Back to the usage view so the new account shows up right away.
+    showSettings(false);
   } catch (err) {
     $("form-error").textContent = String(err);
+  } finally {
+    btn.disabled = false;
   }
 };
 $("refresh").onchange = async (e) => {

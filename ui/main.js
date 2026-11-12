@@ -47,7 +47,7 @@ function untilText(iso) {
 
 function bar(ratio) {
   const pct = Math.max(0, Math.min(100, ratio * 100));
-  return `<div class="bar ${level(ratio)}"><i style="width:${pct}%"></i></div>`;
+  return `<div class="bar"><i class="now" style="width:${pct}%"></i></div>`;
 }
 
 function monthProjection(month) {
@@ -105,13 +105,13 @@ function pace(u, w) {
   if (t1 - t0 < Math.max(10 * 6e4, lookback / 4)) return null;
   const rate = (p1 - p0) / (t1 - t0); // % per ms
   const toReset = w.resets_at ? new Date(w.resets_at) - now : null;
-  if (rate <= 0) return { text: t("idle"), level: "", hits: false };
+  if (rate <= 0) return { text: t("idle"), level: "", hits: false, proj: w.pct };
   const eta = (100 - w.pct) / rate;
   if (toReset != null && eta > toReset) {
     const atReset = Math.min(100, w.pct + rate * toReset);
-    return { text: t("pace.at_reset", { p: Math.round(atReset) }), level: "", hits: false };
+    return { text: t("pace.at_reset", { p: Math.round(atReset) }), level: atReset >= 80 ? "warn" : "", hits: false, proj: atReset };
   }
-  return { text: t("pace.limit_in", { d: fmtDur(eta) }), level: eta < 36e5 ? "bad" : "warn", hits: true };
+  return { text: t("pace.limit_in", { d: fmtDur(eta) }), level: eta < 36e5 ? "bad" : "warn", hits: true, proj: 100, eta };
 }
 
 // ---- Alerts: Windows notifications, once per threshold and period ---------
@@ -153,33 +153,52 @@ function checkAlerts(usages) {
   store.set(ALERT_KEY, fired);
 }
 
+/** Colour means state only: "" fine, warn (heading to 80 %+), bad (will run out / 95 %+). */
+function limitState(w, p) {
+  if (w.pct >= 95 || (p?.hits && p.eta < 36e5)) return "bad";
+  if (w.pct >= 80 || p?.hits || (p?.proj ?? 0) >= 80) return "warn";
+  return "";
+}
+
 function renderAccount(u) {
   let body = "", pill = "", pillLevel = "";
 
   if (u.windows?.length) {
+    // One line per limit: name · bar (now + projected at reset) · % · reset or warning.
+    let worst = null;
     for (const w of u.windows) {
-      body += `<div class="row"><span class="k">${esc(wname(w.name))}</span>${bar(w.pct / 100)}<span class="v">${Math.round(w.pct)}%</span></div>`;
       const p = pace(u, w);
-      const parts = [w.resets_at ? untilText(w.resets_at) : "", p ? `<span class="${p.level}">${esc(p.text)}</span>` : ""].filter(Boolean);
-      if (parts.length) body += `<div class="sub">${esc(wname(w.name))} · ${parts.join(" · ")}</div>`;
+      const st = limitState(w, p);
+      const proj = Math.max(w.pct, Math.min(100, p?.proj ?? w.pct));
+      const right = p?.hits
+        ? `⚠ ${fmtDur(p.eta)}`
+        : w.resets_at ? `↻ ${new Date(w.resets_at) > Date.now() ? fmtDur(new Date(w.resets_at) - Date.now()) : "…"}` : "";
+      const tip = [wname(w.name), w.resets_at ? untilText(w.resets_at) : "", p ? p.text : ""].filter(Boolean).join(" · ");
+      body += `<div class="lim ${st}" title="${esc(tip)}">
+        <span class="k">${esc(wname(w.name))}</span>
+        <div class="bar"><i class="now" style="width:${w.pct}%"></i><i class="proj" style="left:${w.pct}%;width:${proj - w.pct}%"></i></div>
+        <span class="v">${Math.round(w.pct)}%</span>
+        <span class="r">${esc(right)}</span>
+      </div>`;
+      const rank = { "": 0, warn: 1, bad: 2 };
+      if (!worst || rank[st] > rank[worst.st] || (rank[st] === rank[worst.st] && w.pct > worst.w.pct)) worst = { w, st, p };
     }
-    // Compact pill: the most constrained window, coloured by pace or level.
-    const top = u.windows.reduce((a, b) => (b.pct > a.pct ? b : a));
-    const tp = pace(u, top);
-    pill = `${wname(top.name)} ${Math.round(top.pct)}%${tp?.hits ? " ⚠" : ""}`;
-    pillLevel = tp?.hits ? tp.level : level(top.pct / 100);
+    // Compact pill: the most constrained window, coloured by its state.
+    pill = `${wname(worst.w.name)} ${Math.round(worst.w.pct)}%${worst.p?.hits ? " ⚠" : ""}`;
+    pillLevel = worst.st;
   } else if (u.day != null || u.week != null || u.month != null) {
     const b = u.budget_month;
     const dayB = b ? b / 30 : null, weekB = b ? b / 4.345 : null;
-    const row = (k, v, budget) =>
-      `<div class="row"><span class="k">${k}</span>${budget ? bar((v ?? 0) / budget) : "<span></span>"}<span class="v">${usd(v)}</span></div>`;
+    const row = (k, v, budget) => {
+      const r = budget ? (v ?? 0) / budget : 0;
+      return `<div class="lim ${budget ? level(r) : ""}"><span class="k">${k}</span>${budget ? bar(r) : '<div class="bar off"></div>'}<span class="v">${usd(v)}</span><span class="r"></span></div>`;
+    };
     body += row(t("today"), u.day, dayB) + row(t("week"), u.week, weekB) + row(t("month"), u.month, b);
     const proj = u.month != null ? monthProjection(u.month) : null;
     if (proj != null) body += `<div class="sub">${t("spend.pace", { v: usd(proj) })}${b ? t("spend.budget", { v: usd(b) }) : ""}</div>`;
     pill = `${usd(u.day)} · ${usd(u.month)}`;
     pillLevel = b && u.month != null ? level(u.month / b) : "";
   }
-  if (u.note) body += `<div class="sub">${esc(tb(u.note))}</div>`;
   if (u.error) {
     body += `<div class="err">${esc(tb(u.error))}</div>`;
     if (WEB[u.provider]) body += `<button class="link" data-signin="${esc(u.id)}">${esc(t("signin.link", { site: WEB[u.provider] }))}</button>`;
@@ -188,7 +207,7 @@ function renderAccount(u) {
   }
 
   return `<div class="acc">
-    <div class="acc-head"><span class="acc-name">${esc(u.label)}</span><span class="acc-tag">${esc(tag(u.provider))}</span><span class="pill ${pillLevel}">${esc(pill)}</span></div>
+    <div class="acc-head"><span class="acc-name">${esc(u.label)}</span><span class="acc-note">${esc(tb(u.note || ""))}</span><span class="pill ${pillLevel}">${esc(pill)}</span></div>
     ${body}
   </div>`;
 }
@@ -204,6 +223,34 @@ function renderUsage() {
   main.querySelectorAll("[data-signin]").forEach((b) => {
     b.onclick = () => invoke("web_sign_in", { id: b.dataset.signin });
   });
+  fitHeight();
+}
+
+// ---- Freshness and size ----------------------------------------------------
+let lastFetch = 0;
+
+function renderStatus() {
+  if (!lastFetch) return;
+  const mins = Math.floor((Date.now() - lastFetch) / 6e4);
+  const el = $("status");
+  el.textContent = mins < 1 ? t("ago.now") : t("ago.min", { m: mins });
+  // Stale: two refresh intervals without fresh data.
+  el.classList.toggle("stale", Date.now() - lastFetch > 2 * Math.max(60, cfg.refresh_secs) * 1000 + 30e3);
+}
+
+/** Height follows the content (no empty space, no scrollbar); width is the user's. */
+function fitHeight() {
+  const view = $("view-settings").hidden ? $("view-usage") : $("view-settings");
+  const header = document.querySelector("header");
+  // The view stretches to fill the window, so measure its last child instead.
+  const lastEl = [...view.children].filter((c) => !c.hidden).pop();
+  const content = lastEl ? lastEl.offsetTop - view.offsetTop + lastEl.offsetHeight + 14 : 40;
+  const want = Math.ceil(header.offsetHeight + content + 2);
+  const max = Math.floor(screen.availHeight * 0.85);
+  const h = Math.max(60, Math.min(want, max));
+  if (Math.abs(h - window.innerHeight) > 1) {
+    win.setSize(new window.__TAURI__.dpi.LogicalSize(window.innerWidth, h)).catch(console.error);
+  }
 }
 
 async function refresh() {
@@ -213,8 +260,8 @@ async function refresh() {
     last = await invoke("fetch_all");
     record(last);
     checkAlerts(last);
-    const now = new Date();
-    $("status").textContent = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")} · ${t("status.periods")}`;
+    lastFetch = Date.now();
+    renderStatus();
   } catch (e) {
     $("status").textContent = t("error");
     console.error(e);
@@ -241,6 +288,7 @@ function renderSettings() {
   $("alerts").checked = alertsOn();
   window.__TAURI__.autostart.isEnabled().then((on) => ($("autostart").checked = on)).catch(console.error);
   syncForm();
+  fitHeight();
 }
 
 function syncForm() {
@@ -297,8 +345,7 @@ $("language").onchange = (e) => {
   store.set("language", e.target.value);
   setLanguage(e.target.value);
   renderSettings();
-  const s = $("status").textContent.split(" · ")[0];
-  if (/^\d\d:\d\d$/.test(s)) $("status").textContent = `${s} · ${t("status.periods")}`;
+  renderStatus();
 };
 $("refresh").onchange = async (e) => {
   cfg = await invoke("set_refresh", { secs: Number(e.target.value) || 120 });
@@ -309,13 +356,14 @@ $("refresh").onchange = async (e) => {
 function setCompact(on) {
   document.body.classList.toggle("compact", on);
   store.set("compact", on);
+  fitHeight();
 }
 $("btn-compact").onclick = () => setCompact(!document.body.classList.contains("compact"));
 document.querySelector("header").ondblclick = (e) => { if (e.target.tagName !== "BUTTON") setCompact(!document.body.classList.contains("compact")); };
 $("btn-refresh").onclick = refresh;
 $("btn-settings").onclick = () => showSettings($("view-settings").hidden);
 $("btn-hide").onclick = () => win.hide();
-$("grip").onmousedown = (e) => { e.preventDefault(); win.startResizeDragging("SouthEast"); };
+$("grip").onmousedown = (e) => { e.preventDefault(); win.startResizeDragging("East"); };
 
 listen("ghost", (e) => document.body.classList.toggle("ghost", !!e.payload));
 listen("web-signed-in", () => { showSettings(false); });
@@ -330,5 +378,6 @@ listen("web-signed-in", () => { showSettings(false); });
   else await refresh();
   schedule();
   // Keep the "resets in" countdowns fresh between fetches.
-  setInterval(() => { if ($("view-settings").hidden && last.length) renderUsage(); }, 60_000);
+  setInterval(() => { renderStatus(); if ($("view-settings").hidden && last.length) renderUsage(); }, 60_000);
+  window.addEventListener("resize", () => clearTimeout(window.__fit) || (window.__fit = setTimeout(fitHeight, 150)));
 })();

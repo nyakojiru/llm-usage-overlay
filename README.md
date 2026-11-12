@@ -44,7 +44,8 @@ English and Spanish (Latin America). By default it follows your Windows display 
 
 ## Use
 
-- Drag the header to move it, the bottom-right corner to resize it. It remembers where you left it.
+- One line per limit: the bar is where you are; its faint extension is where you'll be at reset at your current pace. Colour only means trouble: amber when heading to 80 %+, red when you'll run out before the reset (the right column then shows how soon, ⚠).
+- Drag the header to move it and its right edge to change the width; the height follows the content. It remembers where you left it.
 - **▭** or double-click the header: compact mode, one line per account.
 - **Ctrl+Alt+U**: click-through. The overlay dims and lets the mouse pass, so it can sit over your editor or a game.
 - **Ctrl+Alt+H**: show / hide. The tray icon has the same, plus Quit.

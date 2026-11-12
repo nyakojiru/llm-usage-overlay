@@ -156,9 +156,11 @@ function renderAccount(u) {
       const parts = [w.resets_at ? untilText(w.resets_at) : "", p ? `<span class="${p.level}">${esc(p.text)}</span>` : ""].filter(Boolean);
       if (parts.length) body += `<div class="sub">${esc(w.name)} · ${parts.join(" · ")}</div>`;
     }
-    const top = u.windows[0];
-    pill = `${top.name} ${Math.round(top.pct)}%`;
-    pillLevel = level(Math.max(...u.windows.map((w) => w.pct)) / 100);
+    // Compact pill: the most constrained window, coloured by pace or level.
+    const top = u.windows.reduce((a, b) => (b.pct > a.pct ? b : a));
+    const tp = pace(u, top);
+    pill = `${top.name} ${Math.round(top.pct)}%${tp?.hits ? " ⚠" : ""}`;
+    pillLevel = tp?.hits ? tp.level : level(top.pct / 100);
   } else if (u.day != null || u.week != null || u.month != null) {
     const b = u.budget_month;
     const dayB = b ? b / 30 : null, weekB = b ? b / 4.345 : null;
@@ -230,6 +232,7 @@ function renderSettings() {
   });
   $("refresh").value = cfg.refresh_secs;
   $("alerts").checked = alertsOn();
+  window.__TAURI__.autostart.isEnabled().then((on) => ($("autostart").checked = on)).catch(console.error);
   syncForm();
 }
 
@@ -278,6 +281,11 @@ $("add-form").onsubmit = async (e) => {
   }
 };
 $("alerts").onchange = (e) => store.set("alerts", e.target.checked);
+$("autostart").onchange = async (e) => {
+  const a = window.__TAURI__.autostart;
+  try { await (e.target.checked ? a.enable() : a.disable()); } catch (err) { console.error(err); }
+  e.target.checked = await a.isEnabled().catch(() => false);
+};
 $("test-alert").onclick = () => notify("LLM Usage Overlay", "Notifications work. You'll hear from it only when a limit or budget needs attention.");
 $("refresh").onchange = async (e) => {
   cfg = await invoke("set_refresh", { secs: Number(e.target.value) || 120 });

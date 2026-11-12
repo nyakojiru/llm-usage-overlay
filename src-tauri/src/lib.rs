@@ -146,6 +146,11 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        // Off by default; the settings checkbox turns it on (HKCU Run key).
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         // Remember only the overlay's own geometry; the claude.ai windows must
         // never be restored (a restored "visible" flag would show the hidden probe).
         .plugin(
@@ -200,6 +205,22 @@ pub fn run() {
             // Persist the overlay's place as soon as the user stops moving or
             // resizing it, so a crash or shutdown doesn't lose it.
             if let Some(main) = app.get_webview_window("main") {
+                // First run (no saved geometry): top-right corner of the
+                // primary screen, out of the way.
+                let saved = app
+                    .path()
+                    .app_config_dir()
+                    .map(|d| d.join(tauri_plugin_window_state::DEFAULT_FILENAME).exists())
+                    .unwrap_or(true);
+                if !saved {
+                    if let (Ok(Some(m)), Ok(size)) = (main.primary_monitor(), main.outer_size()) {
+                        let area = m.work_area();
+                        let margin = (16.0 * m.scale_factor()) as i32;
+                        let x = area.position.x + area.size.width as i32 - size.width as i32 - margin;
+                        let y = area.position.y + margin;
+                        let _ = main.set_position(tauri::PhysicalPosition::new(x, y));
+                    }
+                }
                 let handle = app.handle().clone();
                 main.on_window_event(move |ev| {
                     if matches!(ev, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {

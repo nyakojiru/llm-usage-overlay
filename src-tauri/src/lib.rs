@@ -173,6 +173,15 @@ pub fn run() {
     let show_key = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyH);
 
     tauri::Builder::default()
+        // Must be first: a second launch (Start menu, desktop shortcut) exits
+        // and brings the running overlay forward instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_notification::init())
         // Off by default; the settings checkbox turns it on (HKCU Run key).
         .plugin(tauri_plugin_autostart::init(

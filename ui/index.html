@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM Usage</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="frame">
+    <header data-tauri-drag-region>
+      <span class="title" data-tauri-drag-region>LLM usage</span>
+      <span id="status" data-tauri-drag-region></span>
+      <button id="btn-compact" title="Compact / full (double-click header)">▭</button>
+      <button id="btn-refresh" title="Refresh now">↻</button>
+      <button id="btn-settings" title="Accounts">⚙</button>
+      <button id="btn-hide" title="Hide (Ctrl+Alt+H)">✕</button>
+    </header>
+
+    <main id="view-usage"></main>
+
+    <section id="view-settings" hidden>
+      <h2>Accounts</h2>
+      <ul id="account-list"></ul>
+
+      <form id="add-form">
+        <h2>Add account</h2>
+        <label>Provider
+          <select name="provider" id="provider">
+            <option value="claude_subscription">Claude Pro/Max plan (Claude Code login)</option>
+            <option value="anthropic">Anthropic API org (Admin key)</option>
+            <option value="openai">OpenAI API org (Admin key)</option>
+            <option value="openrouter">OpenRouter (API key)</option>
+          </select>
+        </label>
+        <label>Label <input name="label" placeholder="e.g. Personal Max" /></label>
+        <label id="row-secret">Key <input name="secret" type="password" autocomplete="off" placeholder="sk-ant-admin…" /></label>
+        <label id="row-path">Credentials file (optional)
+          <input name="credentials_path" placeholder="%USERPROFILE%\.claude\.credentials.json" />
+        </label>
+        <label id="row-budget">Monthly budget, USD (optional) <input name="budget_month" type="number" min="0" step="1" /></label>
+        <p id="hint" class="hint"></p>
+        <button type="submit">Add</button>
+        <p id="form-error" class="err"></p>
+      </form>
+
+      <label class="inline">Refresh every
+        <input id="refresh" type="number" min="60" step="30" /> s
+      </label>
+      <p class="hint">Ctrl+Alt+U: click-through on/off · Ctrl+Alt+H: show/hide</p>
+    </section>
+
+    <div id="grip" title="Resize"></div>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>

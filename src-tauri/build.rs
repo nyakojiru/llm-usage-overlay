@@ -11,6 +11,7 @@ fn main() {
             "fetch_all",
             "web_sign_in",
             "report_web_usage",
+            "set_language",
         ]),
     ))
     .expect("failed to run tauri-build");

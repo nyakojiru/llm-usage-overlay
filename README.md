@@ -33,10 +33,14 @@ Download the installer from [Releases](https://github.com/nyakojiru/llm-usage-ov
 Every installer is built by GitHub Actions from the tagged source, never on anyone's PC. Check it before running it:
 
 ```powershell
-gh attestation verify "LLM Usage Overlay_0.1.0_x64-setup.exe" -R nyakojiru/llm-usage-overlay
+gh attestation verify llm-usage-overlay_<version>_x64-setup.exe -R nyakojiru/llm-usage-overlay
 ```
 
 or compare its SHA-256 with `SHA256SUMS.txt` in the release. The installer is not Authenticode-signed (that needs a paid certificate), so Windows SmartScreen will warn the first time: **More info → Run anyway**.
+
+## Language
+
+English and Spanish (Latin America). By default it follows your Windows display language; you can pick one in settings.
 
 ## Use
 

@@ -16,6 +16,34 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 static GHOST: AtomicBool = AtomicBool::new(false);
 /// Debounce counter for saving the window geometry.
 static SAVE_GEN: AtomicU64 = AtomicU64::new(0);
+/// Title template for sign-in windows ("{site}" is replaced), set by the UI language.
+pub static SIGNIN_TITLE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// The tray menu entries, kept so the UI can relabel them in its language.
+struct TrayItems {
+    show: MenuItem<tauri::Wry>,
+    ghost: MenuItem<tauri::Wry>,
+    quit: MenuItem<tauri::Wry>,
+}
+
+#[derive(serde::Deserialize)]
+struct UiStrings {
+    show: String,
+    ghost: String,
+    quit: String,
+    signin_title: String,
+}
+
+/// Apply the UI language to the parts drawn by the backend.
+#[tauri::command]
+fn set_language(app: AppHandle, strings: UiStrings) {
+    if let Some(items) = app.try_state::<TrayItems>() {
+        let _ = items.show.set_text(&strings.show);
+        let _ = items.ghost.set_text(&strings.ghost);
+        let _ = items.quit.set_text(&strings.quit);
+    }
+    *SIGNIN_TITLE.lock().unwrap() = strings.signin_title;
+}
 
 fn toggle_ghost(app: &AppHandle) {
     let on = !GHOST.fetch_xor(true, Ordering::SeqCst);
@@ -179,7 +207,8 @@ pub fn run() {
             set_refresh,
             fetch_all,
             web_sign_in,
-            report_web_usage
+            report_web_usage,
+            set_language
         ])
         .manage(web_session::Pending::default())
         .setup(move |app| {
@@ -201,6 +230,7 @@ pub fn run() {
                     _ => {}
                 })
                 .build(app)?;
+            app.manage(TrayItems { show, ghost, quit });
 
             // Persist the overlay's place as soon as the user stops moving or
             // resizing it, so a crash or shutdown doesn't lose it.

@@ -145,7 +145,14 @@ fn window(app: &AppHandle, acc: &Account, s: &'static Site, visible: bool) -> Re
     let start = if visible { s.login } else { s.probe };
     let id = acc.id.clone();
     WebviewWindowBuilder::new(app, label(&acc.id), WebviewUrl::External(parse(start)))
-        .title(format!("Sign in to {} - LLM Usage Overlay", s.name))
+        .title({
+            let tpl = crate::SIGNIN_TITLE.lock().unwrap().clone();
+            if tpl.is_empty() {
+                format!("Sign in to {} - LLM Usage Overlay", s.name)
+            } else {
+                tpl.replace("{site}", s.name)
+            }
+        })
         .inner_size(480.0, 760.0)
         .visible(visible)
         .focused(visible)

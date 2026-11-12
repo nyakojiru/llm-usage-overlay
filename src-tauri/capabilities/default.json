@@ -18,6 +18,7 @@
     "allow-remove-account",
     "allow-set-refresh",
     "allow-fetch-all",
-    "allow-web-sign-in"
+    "allow-web-sign-in",
+    "allow-set-language"
   ]
 }

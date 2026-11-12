@@ -15,16 +15,24 @@ let last = [];
 const PROVIDER_TAG = {
   anthropic: "Anthropic API",
   openai: "OpenAI API",
-  openrouter: "OpenRouter",
-  claude_subscription: "Claude plan",
+  claude_subscription: "Claude plan · CLI",
+  claude_web: "Claude plan",
+  chatgpt_web: "ChatGPT plan",
+  opencode_web: "OpenCode",
 };
 
+// Plan accounts sign in to the provider's own site inside the app.
+const WEB = { claude_web: "claude.ai", chatgpt_web: "chatgpt.com", opencode_web: "opencode.ai" };
+
+const signInHint = (site) =>
+  `A ${site} window opens: sign in there and it closes by itself. Your session stays in this app's own private profile. Nothing else needs to be installed.`;
+
 const HINTS = {
-  claude_subscription:
-    "Account-wide plan limits (all your devices). Reads the token Claude Code keeps on this PC; leave Key empty. Uses an undocumented endpoint.",
-  anthropic: "Needs an Admin key (sk-ant-admin…) from Console → Settings → Admin keys. Org accounts only.",
-  openai: "Needs an Admin key from platform.openai.com → Organization → Admin keys.",
-  openrouter: "Your normal OpenRouter API key works.",
+  claude_web: "Account-wide limits (5 h, weekly), counting all your devices. " + signInHint("claude.ai"),
+  chatgpt_web: "Your plan's Codex limits (5 h, weekly). " + signInHint("chatgpt.com"),
+  opencode_web: "Go / Go Plus limits (5 h, weekly, monthly) and your Zen balance. " + signInHint("opencode.ai"),
+  anthropic: "Organization spend in USD. Needs an Admin key (sk-ant-admin…) from Console → Settings → Admin keys.",
+  openai: "Organization spend in USD. Needs an Admin key from platform.openai.com → Organization → Admin keys.",
 };
 
 const usd = (n) => (n == null ? "—" : n >= 100 ? `$${n.toFixed(0)}` : `$${n.toFixed(2)}`);
@@ -51,6 +59,92 @@ function monthProjection(month) {
   return elapsed > 0.25 ? (month / elapsed) * days : null;
 }
 
+// ---- Pace: a little local history of each limit window -------------------
+// Samples stay in this app's own WebView2 storage and are never sent anywhere.
+const HIST_KEY = "history-v1";
+const KEEP_MS = 8 * 864e5;
+const WINDOW_MS = { "5 h": 5 * 36e5, "7 d": 7 * 864e5, month: 30 * 864e5 };
+let hist = store.get(HIST_KEY, {});
+
+function record(usages) {
+  const now = Date.now();
+  for (const u of usages) {
+    for (const w of u.windows || []) {
+      const key = `${u.id}|${w.name}`;
+      let s = hist[key] || [];
+      const lastS = s[s.length - 1];
+      if (lastS && w.pct + 0.5 < lastS[1]) s = []; // the window reset
+      if (!lastS || now - lastS[0] >= 55e3) s.push([now, w.pct]);
+      hist[key] = s.filter(([t]) => now - t < KEEP_MS);
+    }
+  }
+  store.set(HIST_KEY, hist);
+}
+
+function fmtDur(ms) {
+  const h = Math.floor(ms / 36e5), m = Math.floor((ms % 36e5) / 6e4);
+  return h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : h ? `${h}h ${m}m` : `${m}m`;
+}
+
+/** Where this window is heading: null (not enough data), or {text, level, hits}. */
+function pace(u, w) {
+  const s = hist[`${u.id}|${w.name}`] || [];
+  const now = Date.now();
+  const lookback = (WINDOW_MS[w.name] || WINDOW_MS["5 h"]) / 5;
+  const recent = s.filter(([t]) => now - t <= lookback);
+  if (recent.length < 2) return null;
+  const [t0, p0] = recent[0], [t1, p1] = recent[recent.length - 1];
+  if (t1 - t0 < 10 * 6e4) return null;
+  const rate = (p1 - p0) / (t1 - t0); // % per ms
+  const toReset = w.resets_at ? new Date(w.resets_at) - now : null;
+  if (rate <= 0) return { text: "idle", level: "", hits: false };
+  const eta = (100 - w.pct) / rate;
+  if (toReset != null && eta > toReset) {
+    const atReset = Math.min(100, w.pct + rate * toReset);
+    return { text: `on pace for ${Math.round(atReset)}% at reset`, level: "", hits: false };
+  }
+  return { text: `limit in ${fmtDur(eta)} at this pace`, level: eta < 36e5 ? "bad" : "warn", hits: true };
+}
+
+// ---- Alerts: Windows notifications, once per threshold and period ---------
+const ALERT_KEY = "alerts-v1";
+let fired = store.get(ALERT_KEY, {});
+const alertsOn = () => store.get("alerts", true);
+
+function notify(title, body) {
+  try { window.__TAURI__.notification.sendNotification({ title, body }); } catch (e) { console.error(e); }
+}
+
+function alertOnce(key, title, body) {
+  if (fired[key]) return;
+  fired[key] = Date.now();
+  if (alertsOn()) notify(title, body);
+}
+
+function checkAlerts(usages) {
+  for (const u of usages) {
+    if (u.error) continue;
+    for (const w of u.windows || []) {
+      const period = w.resets_at || "";
+      for (const th of [80, 95]) {
+        if (w.pct >= th) alertOnce(`${u.id}|${w.name}|${th}|${period}`, `${u.label}: ${w.name} at ${Math.round(w.pct)}%`, w.resets_at ? untilText(w.resets_at) : "");
+      }
+      const p = pace(u, w);
+      if (p?.hits) alertOnce(`${u.id}|${w.name}|pace|${period}`, `${u.label}: ${w.name} ${p.text}`, w.resets_at ? `before it ${untilText(w.resets_at)}` : "");
+    }
+    if (u.budget_month && u.month != null) {
+      const month = new Date().toISOString().slice(0, 7);
+      for (const th of [80, 100]) {
+        if (u.month >= (u.budget_month * th) / 100) alertOnce(`${u.id}|budget|${th}|${month}`, `${u.label}: ${th}% of the monthly budget`, `${usd(u.month)} of ${usd(u.budget_month)}`);
+      }
+    }
+  }
+  // Forget alerts older than 40 days.
+  const cutoff = Date.now() - 40 * 864e5;
+  for (const k of Object.keys(fired)) if (fired[k] < cutoff) delete fired[k];
+  store.set(ALERT_KEY, fired);
+}
+
 function renderAccount(u) {
   const tag = PROVIDER_TAG[u.provider] ?? u.provider;
   let body = "", pill = "", pillLevel = "";
@@ -58,7 +152,9 @@ function renderAccount(u) {
   if (u.windows?.length) {
     for (const w of u.windows) {
       body += `<div class="row"><span class="k">${esc(w.name)}</span>${bar(w.pct / 100)}<span class="v">${Math.round(w.pct)}%</span></div>`;
-      if (w.resets_at && (w.name === "5 h" || w.name === "7 d")) body += `<div class="sub">${esc(w.name)} ${untilText(w.resets_at)}</div>`;
+      const p = pace(u, w);
+      const parts = [w.resets_at ? untilText(w.resets_at) : "", p ? `<span class="${p.level}">${esc(p.text)}</span>` : ""].filter(Boolean);
+      if (parts.length) body += `<div class="sub">${esc(w.name)} · ${parts.join(" · ")}</div>`;
     }
     const top = u.windows[0];
     pill = `${top.name} ${Math.round(top.pct)}%`;
@@ -77,6 +173,7 @@ function renderAccount(u) {
   if (u.note) body += `<div class="sub">${esc(u.note)}</div>`;
   if (u.error) {
     body += `<div class="err">${esc(u.error)}</div>`;
+    if (WEB[u.provider]) body += `<button class="link" data-signin="${esc(u.id)}">Sign in to ${WEB[u.provider]}</button>`;
     pill = "error";
     pillLevel = "bad";
   }
@@ -95,6 +192,9 @@ function renderUsage() {
     return;
   }
   main.innerHTML = last.map(renderAccount).join("");
+  main.querySelectorAll("[data-signin]").forEach((b) => {
+    b.onclick = () => invoke("web_sign_in", { id: b.dataset.signin });
+  });
 }
 
 async function refresh() {
@@ -102,6 +202,8 @@ async function refresh() {
   $("status").textContent = "updating…";
   try {
     last = await invoke("fetch_all");
+    record(last);
+    checkAlerts(last);
     const t = new Date();
     $("status").textContent = `${t.getHours().toString().padStart(2, "0")}:${t.getMinutes().toString().padStart(2, "0")} · UTC periods`;
   } catch (e) {
@@ -127,21 +229,23 @@ function renderSettings() {
     };
   });
   $("refresh").value = cfg.refresh_secs;
+  $("alerts").checked = alertsOn();
   syncForm();
 }
 
 function syncForm() {
   const p = $("provider").value;
   $("row-secret").hidden = false;
-  $("row-secret").firstChild.textContent = p === "claude_subscription" ? "OAuth token (optional, normally empty) " : "Key ";
-  $("row-path").hidden = p !== "claude_subscription";
-  $("row-budget").hidden = p === "claude_subscription";
+  $("row-secret").firstChild.textContent = "Admin key ";
+  $("row-secret").hidden = !!WEB[p];
+  $("row-budget").hidden = !!WEB[p];
   $("hint").textContent = HINTS[p];
 }
 
 function showSettings(on) {
   $("view-settings").hidden = !on;
   $("view-usage").hidden = on;
+  $("view-settings").scrollTop = 0;
   if (on) renderSettings();
   else refresh();
 }
@@ -160,9 +264,11 @@ $("add-form").onsubmit = async (e) => {
       label: f.get("label") || "",
       secret: f.get("secret") || null,
       budgetMonth: f.get("budget_month") ? Number(f.get("budget_month")) : null,
-      credentialsPath: f.get("credentials_path") || null,
     });
     e.target.reset();
+    syncForm();
+    const added = cfg.accounts[cfg.accounts.length - 1];
+    if (WEB[added?.provider]) await invoke("web_sign_in", { id: added.id });
     // Back to the usage view so the new account shows up right away.
     showSettings(false);
   } catch (err) {
@@ -171,6 +277,8 @@ $("add-form").onsubmit = async (e) => {
     btn.disabled = false;
   }
 };
+$("alerts").onchange = (e) => store.set("alerts", e.target.checked);
+$("test-alert").onclick = () => notify("LLM Usage Overlay", "Notifications work. You'll hear from it only when a limit or budget needs attention.");
 $("refresh").onchange = async (e) => {
   cfg = await invoke("set_refresh", { secs: Number(e.target.value) || 120 });
   $("refresh").value = cfg.refresh_secs;
@@ -189,6 +297,7 @@ $("btn-hide").onclick = () => win.hide();
 $("grip").onmousedown = (e) => { e.preventDefault(); win.startResizeDragging("SouthEast"); };
 
 listen("ghost", (e) => document.body.classList.toggle("ghost", !!e.payload));
+listen("web-signed-in", () => { showSettings(false); });
 
 (async () => {
   setCompact(store.get("compact", false));

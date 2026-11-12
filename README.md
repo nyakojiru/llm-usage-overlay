@@ -26,6 +26,18 @@ Built with [Tauri 2](https://tauri.app) (Rust + WebView2), about 40 MB of RAM.
 
 Plan accounts need nothing else installed: no CLI, no browser extension. API spend uses the providers' official Admin APIs. Periods are UTC, as the providers count them.
 
+## Install
+
+Download the installer from [Releases](https://github.com/nyakojiru/llm-usage-overlay/releases). It installs for your user only, no admin rights needed.
+
+Every installer is built by GitHub Actions from the tagged source, never on anyone's PC. Check it before running it:
+
+```powershell
+gh attestation verify "LLM Usage Overlay_0.1.0_x64-setup.exe" -R nyakojiru/llm-usage-overlay
+```
+
+or compare its SHA-256 with `SHA256SUMS.txt` in the release. The installer is not Authenticode-signed (that needs a paid certificate), so Windows SmartScreen will warn the first time: **More info → Run anyway**.
+
 ## Use
 
 - Drag the header to move it, the bottom-right corner to resize it. It remembers where you left it.

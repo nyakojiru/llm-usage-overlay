@@ -96,6 +96,7 @@ h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: 
 #account-list { list-style: none; margin: 0; padding: 0; }
 #account-list li { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; }
 #account-list button { background: none; border: 1px solid var(--line); color: var(--bad); border-radius: 5px; cursor: pointer; font-size: 11px; }
+#account-list button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
 form label, label.inline { display: block; margin-bottom: 6px; color: var(--muted); user-select: text; }
 input, select {
   display: block; width: 100%; margin-top: 2px; padding: 4px 6px;

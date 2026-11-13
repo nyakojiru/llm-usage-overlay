@@ -123,9 +123,23 @@ function notify(title, body) {
   try { window.__TAURI__.notification.sendNotification({ title, body }); } catch (e) { console.error(e); }
 }
 
-function alertOnce(key, title, body) {
-  if (fired[key]) return;
-  fired[key] = Date.now();
+/**
+ * Alert once per `base` and period. Providers recompute resets_at on every poll
+ * (Claude's carries sub-second jitter), so comparing the raw string made every
+ * poll look like a new period and re-alerted each 2 min. Two resets closer than
+ * `tolMs` are the same period; a real new period moves the reset by a window.
+ */
+function alertOnce(base, period, title, body, tolMs = 0) {
+  const r = Date.parse(period);
+  const seen = Object.keys(fired).some((k) => {
+    if (!k.startsWith(base + "|")) return false;
+    const p = k.slice(base.length + 1);
+    if (p === period) return true;
+    const pr = Date.parse(p);
+    return tolMs > 0 && !isNaN(r) && !isNaN(pr) && Math.abs(pr - r) < tolMs;
+  });
+  if (seen) return;
+  fired[`${base}|${period}`] = Date.now();
   if (alertsOn()) notify(title, body);
 }
 
@@ -134,16 +148,17 @@ function checkAlerts(usages) {
     if (u.error) continue;
     for (const w of u.windows || []) {
       const period = w.resets_at || "";
+      const tol = Math.min(15 * 6e4, winMs(w.name) / 4);
       for (const th of [80, 95]) {
-        if (w.pct >= th) alertOnce(`${u.id}|${w.name}|${th}|${period}`, t("alert.at", { label: u.label, win: wname(w.name), p: Math.round(w.pct) }), w.resets_at ? untilText(w.resets_at) : "");
+        if (w.pct >= th) alertOnce(`${u.id}|${w.name}|${th}`, period, t("alert.at", { label: u.label, win: wname(w.name), p: Math.round(w.pct) }), w.resets_at ? untilText(w.resets_at) : "", tol);
       }
       const p = pace(u, w);
-      if (p?.hits) alertOnce(`${u.id}|${w.name}|pace|${period}`, `${u.label}: ${wname(w.name)} · ${p.text}`, w.resets_at ? t("alert.pace.body", { reset: untilText(w.resets_at) }) : "");
+      if (p?.hits) alertOnce(`${u.id}|${w.name}|pace`, period, `${u.label}: ${wname(w.name)} · ${p.text}`, w.resets_at ? t("alert.pace.body", { reset: untilText(w.resets_at) }) : "", tol);
     }
     if (u.budget_month && u.month != null) {
       const month = new Date().toISOString().slice(0, 7);
       for (const th of [80, 100]) {
-        if (u.month >= (u.budget_month * th) / 100) alertOnce(`${u.id}|budget|${th}|${month}`, t("alert.budget", { label: u.label, p: th }), t("alert.budget.body", { v: usd(u.month), b: usd(u.budget_month) }));
+        if (u.month >= (u.budget_month * th) / 100) alertOnce(`${u.id}|budget|${th}`, month,t("alert.budget", { label: u.label, p: th }), t("alert.budget.body", { v: usd(u.month), b: usd(u.budget_month) }));
       }
     }
   }
@@ -278,8 +293,22 @@ function renderSettings() {
   $("account-list").innerHTML =
     cfg.accounts.map((a) => `<li><span>${esc(a.label)} <span class="acc-tag">${esc(tag(a.provider))}</span></span><button data-id="${esc(a.id)}">${esc(t("remove"))}</button></li>`).join("") ||
     `<li class="hint">${esc(t("accounts.none"))}</li>`;
+  // Removing also deletes the account's sign-in profile, so it takes a second
+  // click on the same button within 4 s (no modal: WebView2's confirm() is ugly).
   $("account-list").querySelectorAll("button").forEach((b) => {
+    let armed = null;
     b.onclick = async () => {
+      if (!armed) {
+        b.textContent = t("remove.confirm");
+        b.classList.add("danger");
+        armed = setTimeout(() => {
+          armed = null;
+          b.textContent = t("remove");
+          b.classList.remove("danger");
+        }, 4000);
+        return;
+      }
+      clearTimeout(armed);
       cfg = await invoke("remove_account", { id: b.dataset.id });
       renderSettings();
     };
